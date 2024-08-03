@@ -1,59 +1,61 @@
-use std::env;
+use structopt::StructOpt;
+mod git_database;
+mod git_status;
+
+use git_database::{get_summary_stats, load_from_db, save_to_db, summary_repos_table, GitRepoInfo};
+use git_status::check_dir;
 use std::fs;
 use std::path::Path;
+use std::path::PathBuf;
 use std::process::Command;
 
-fn is_git_repo(path: &Path) -> bool {
-    Command::new("git")
-        .arg("-C")
-        .arg(path.to_str().unwrap())
-        .arg("rev-parse")
-        .arg("--is-inside-work-tree")
-        .output()
-        .expect("Failed to execute git command")
-        .status
-        .success()
+#[derive(Debug, StructOpt)]
+#[structopt(name = "gitstatus", about = "Checks the status of git repositories.")]
+struct Cli {
+    #[structopt(subcommand)]
+    command: GitCommand,
 }
 
-fn get_git_status(path: &Path) -> String {
-    let output = Command::new("git")
-        .arg("-C")
-        .arg(path.to_str().unwrap())
-        .arg("status")
-        .arg("--porcelain")
-        .output()
-        .expect("Failed to execute git command")
-        .stdout;
-
-    String::from_utf8(output).unwrap()
-}
-
-fn check_dir(path: &Path) {
-    if is_git_repo(path) {
-        let status = get_git_status(path);
-        if !status.is_empty() {
-            println!("{} has changes:\n{}", path.display(), status);
-        }
-    } else if path.is_dir() {
-        for entry in fs::read_dir(path).unwrap() {
-            let entry = entry.unwrap();
-            let path = entry.path();
-            if path.is_dir() {
-                check_dir(&path);
-            }
-        }
-    }
+#[derive(Debug, StructOpt)]
+enum GitCommand {
+    #[structopt(about = "Check the status of a git repository and save it to the database.")]
+    Check {
+        #[structopt(parse(from_os_str))]
+        path: PathBuf,
+    },
+    #[structopt(about = "Load the status of all git repositories from the database.")]
+    Status,
 }
 
 fn main() {
-    let args: Vec<String> = env::args().collect();
-    if args.len() < 2 {
-        println!("Please provide a list of directories to check.");
-        return;
-    }
+    let args = Cli::from_args();
 
-    for path_str in &args[1..] {
-        let path = Path::new(path_str);
-        check_dir(path);
+    match args.command {
+        GitCommand::Check { path } => {
+            if let Some(repo) = check_dir(&path) {
+                println!("Status:\n{}", repo.status);
+                println!("Unpushed commits:\n{}", repo.unpushed_commits);
+                println!("Updates from remote:\n{}", repo.remote_updates);
+                match save_to_db(&repo) {
+                    Ok(()) => println!("Saved to database successfully."),
+                    Err(e) => eprintln!("Failed to save to database: {}", e),
+                }
+            }
+            summary_repos_table().expect("Failed to create summary table");
+        }
+        GitCommand::Status => match get_summary_stats() {
+            Ok(repos) => {
+                for repo in repos {
+                    println!(
+                        "{} | {} | {} | {}",
+                        repo.path,
+                        repo.status_lines,
+                        repo.unpushed_commits_lines,
+                        repo.remote_updates_lines,
+                    );
+                }
+            }
+            Err(e) => eprintln!("Failed to load from database: {}", e),
+        },
     }
 }

@@ -19,8 +19,29 @@
           version = "0.1.0";
           src = ./.;
           cargoHash = "sha256-P35+K7ipaPg7z1HXPjofEW4LM21VDsCyJP/SidMnrik=";
-          buildInputs = [pkgs.openssl];
-          nativeBuildInputs = [pkgs.cargo pkgs.rustc pkgs.pkg-config pkgs.openssl];
+          buildInputs = with pkgs; [
+            cargo
+            rustc
+            pkg-config
+            openssl
+            rustfmt
+            clippy
+            db
+            sqlite
+            llvmPackages.libclang
+            llvmPackages.llvm
+            glibc
+            gcc
+          ];
+          nativeBuildInputs = with pkgs; [
+            cargo
+            rustc
+            pkg-config
+            openssl
+            db
+            llvmPackages.libclang
+            llvmPackages.llvm
+          ];
         };
       in {
         defaultPackage = sinh-x-gitstatus;
@@ -33,7 +54,17 @@
             openssl
             rustfmt
             clippy
+            db
+            sqlite
+            llvmPackages.libclang
+            llvmPackages.llvm
+            glibc
+            gcc
           ];
+
+          shellHook = ''
+            exec fish
+          '';
         };
       }
     );
