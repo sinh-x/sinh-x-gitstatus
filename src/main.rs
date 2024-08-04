@@ -2,12 +2,11 @@ use structopt::StructOpt;
 mod git_database;
 mod git_status;
 
-use git_database::{get_summary_stats, load_from_db, save_to_db, summary_repos_table, GitRepoInfo};
+use env_logger::Env;
+use git_database::{get_summary_stats, save_to_db, summary_repos_table};
 use git_status::check_dir;
-use std::fs;
-use std::path::Path;
+use log::debug;
 use std::path::PathBuf;
-use std::process::Command;
 
 #[derive(Debug, StructOpt)]
 #[structopt(name = "gitstatus", about = "Checks the status of git repositories.")]
@@ -28,14 +27,16 @@ enum GitCommand {
 }
 
 fn main() {
+    env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
     let args = Cli::from_args();
 
     match args.command {
         GitCommand::Check { path } => {
-            if let Some(repo) = check_dir(&path) {
-                println!("Status:\n{}", repo.status);
-                println!("Unpushed commits:\n{}", repo.unpushed_commits);
-                println!("Updates from remote:\n{}", repo.remote_updates);
+            let repos = check_dir(&path);
+            for repo in repos {
+                debug!("Status:\n{}", repo.status);
+                debug!("Unpushed commits:\n{}", repo.unpushed_commits);
+                debug!("Updates from remote:\n{}", repo.remote_updates);
                 match save_to_db(&repo) {
                     Ok(()) => println!("Saved to database successfully."),
                     Err(e) => eprintln!("Failed to save to database: {}", e),

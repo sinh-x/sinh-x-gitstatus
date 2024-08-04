@@ -5,6 +5,7 @@ use std::path::Path;
 pub struct GitRepoInfo {
     pub path: String,
     pub status: String,
+    pub origin_url: String,
     pub unpushed_commits: String,
     pub remote_updates: String,
 }
@@ -12,12 +13,14 @@ pub struct GitRepoInfo {
 impl GitRepoInfo {
     pub fn new(
         path: String,
+        origin_url: Option<String>,
         status: String,
         unpushed_commits: String,
         remote_updates: String,
     ) -> Self {
         Self {
             path: path.trim_end_matches('/').to_string(),
+            origin_url: origin_url.unwrap_or_default(),
             status,
             unpushed_commits,
             remote_updates,
@@ -38,7 +41,7 @@ pub fn save_to_db(repo: &GitRepoInfo) -> Result<()> {
         .join(".local/share/applications/sinh-x/git-status.db");
     println!("db_path: {:?}", &db_path);
     if let Some(parent) = db_path.parent() {
-        std::fs::create_dir_all(parent);
+        let _ = std::fs::create_dir_all(parent);
     }
     let conn = Connection::open(Path::new(&db_path))?;
 
@@ -53,19 +56,20 @@ pub fn save_to_db(repo: &GitRepoInfo) -> Result<()> {
     )?;
 
     conn.execute(
-        "INSERT OR REPLACE INTO repos (path, status, unpushed_commits, remote_updates) VALUES (?1, ?2, ?3, ?4)",
-        params![repo.path, repo.status, repo.unpushed_commits, repo.remote_updates],
+        "INSERT OR REPLACE INTO repos (path, origin_url, status, unpushed_commits, remote_updates) VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![repo.path, repo.origin_url, repo.status, repo.unpushed_commits, repo.remote_updates],
     )?;
 
     Ok(())
 }
 
+#[allow(dead_code)]
 pub fn load_from_db() -> Result<Vec<GitRepoInfo>> {
     let db_path = dirs::home_dir()
         .unwrap()
         .join(".local/share/applications/sinh-x/git-status.db");
     if let Some(parent) = db_path.parent() {
-        std::fs::create_dir_all(parent);
+        let _ = std::fs::create_dir_all(parent);
     }
     let conn = Connection::open(Path::new(&db_path))?;
 
@@ -93,7 +97,7 @@ pub fn summary_repos_table() -> Result<()> {
         .unwrap()
         .join(".local/share/applications/sinh-x/git-status.db");
     if let Some(parent) = db_path.parent() {
-        std::fs::create_dir_all(parent);
+        let _ = std::fs::create_dir_all(parent);
     }
     let conn = Connection::open(Path::new(&db_path))?;
 
@@ -137,7 +141,7 @@ pub fn get_summary_stats() -> Result<Vec<GitRepoSummary>> {
         .unwrap()
         .join(".local/share/applications/sinh-x/git-status.db");
     if let Some(parent) = db_path.parent() {
-        std::fs::create_dir_all(parent);
+        let _ = std::fs::create_dir_all(parent);
     }
     let conn = Connection::open(Path::new(&db_path))?;
     let mut stmt = conn.prepare("SELECT path, status_lines, unpushed_commits_lines, remote_updates_lines FROM repos_summary")?;
