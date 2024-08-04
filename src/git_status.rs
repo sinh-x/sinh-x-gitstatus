@@ -163,11 +163,11 @@ mod tests {
         init();
 
         // assert something about the repos
-        let path_with_subdir = Path::new("/home/sinh/git-repos/andafin");
+        let path_with_subdir = Path::new("/home/sinh/git-repos/andafin/old-projects/");
         let dir_repos_info = check_dir(&path_with_subdir);
         assert!(
-            dir_repos_info.len() > 1,
-            "Expected 1 repo, but found {} repos",
+            dir_repos_info.len() == 6,
+            "Expected 6 repo, but found {} repos",
             dir_repos_info.len()
         );
     }

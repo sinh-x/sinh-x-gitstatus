@@ -1,7 +1,10 @@
+use bincode;
 use dirs;
-use rusqlite::{params, Connection, Result};
+use rocksdb::DB;
+use serde::{Deserialize, Serialize};
 use std::path::Path;
 
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct GitRepoInfo {
     pub path: String,
     pub status: String,
@@ -28,6 +31,7 @@ impl GitRepoInfo {
     }
 }
 
+#[derive(Serialize, Deserialize, Debug)]
 pub struct GitRepoSummary {
     pub path: String,
     pub status_lines: i32,
@@ -35,130 +39,152 @@ pub struct GitRepoSummary {
     pub remote_updates_lines: i32,
 }
 
-pub fn save_to_db(repo: &GitRepoInfo) -> Result<()> {
-    let db_path = dirs::home_dir()
-        .unwrap()
-        .join(".local/share/applications/sinh-x/git-status.db");
-    println!("db_path: {:?}", &db_path);
-    if let Some(parent) = db_path.parent() {
-        let _ = std::fs::create_dir_all(parent);
-    }
-    let conn = Connection::open(Path::new(&db_path))?;
-
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS repos (
-                  path TEXT PRIMARY KEY,
-                  status TEXT NOT NULL,
-                  unpushed_commits TEXT NOT NULL,
-                  remote_updates TEXT NOT NULL
-                  )",
-        params![],
-    )?;
-
-    conn.execute(
-        "INSERT OR REPLACE INTO repos (path, origin_url, status, unpushed_commits, remote_updates) VALUES (?1, ?2, ?3, ?4, ?5)",
-        params![repo.path, repo.origin_url, repo.status, repo.unpushed_commits, repo.remote_updates],
-    )?;
-
-    Ok(())
+pub struct GitDatabase {
+    db: DB,
 }
 
-#[allow(dead_code)]
-pub fn load_from_db() -> Result<Vec<GitRepoInfo>> {
-    let db_path = dirs::home_dir()
-        .unwrap()
-        .join(".local/share/applications/sinh-x/git-status.db");
-    if let Some(parent) = db_path.parent() {
-        let _ = std::fs::create_dir_all(parent);
-    }
-    let conn = Connection::open(Path::new(&db_path))?;
-
-    let mut stmt =
-        conn.prepare("SELECT path, status, unpushed_commits, remote_updates FROM repos")?;
-    let rows = stmt.query_map(params![], |row| {
-        Ok(GitRepoInfo {
-            path: row.get(0)?,
-            status: row.get(1)?,
-            unpushed_commits: row.get(2)?,
-            remote_updates: row.get(3)?,
-        })
-    })?;
-
-    let mut repos = Vec::new();
-    for repo in rows {
-        repos.push(repo?);
+impl GitDatabase {
+    pub fn new(path: &Path) -> Result<Self, Box<dyn std::error::Error>> {
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let db = DB::open_default(path)?;
+        Ok(Self { db })
     }
 
-    Ok(repos)
+    pub fn save_to_db(&self, repo: &GitRepoInfo) -> Result<(), Box<dyn std::error::Error>> {
+        self.db
+            .put(repo.path.as_bytes(), bincode::serialize(repo)?)?;
+        Ok(())
+    }
+
+    pub fn load_from_db(&self) -> Result<Vec<GitRepoInfo>, Box<dyn std::error::Error>> {
+        let mut repos = Vec::new();
+        for result in self.db.iterator(rocksdb::IteratorMode::Start) {
+            let (key, value) = result?;
+            let repo: GitRepoInfo = bincode::deserialize(&value)?;
+            repos.push(repo);
+        }
+        Ok(repos)
+    }
+
+    pub fn summary_repos_table(&self) -> Result<(), Box<dyn std::error::Error>> {
+        let mut repos_summary = Vec::new();
+
+        for result in self.db.iterator(rocksdb::IteratorMode::Start) {
+            let (key, value) = result?;
+            let repo: GitRepoInfo = bincode::deserialize(&value)?;
+            let summary = GitRepoSummary {
+                path: String::from_utf8(key.to_vec()).unwrap(),
+                status_lines: repo.status.matches('\n').count() as i32,
+                unpushed_commits_lines: repo.unpushed_commits.matches('\n').count() as i32,
+                remote_updates_lines: repo.remote_updates.matches('\n').count() as i32,
+            };
+            repos_summary.push(summary);
+        }
+
+        for summary in repos_summary {
+            self.db
+                .put(summary.path.as_bytes(), bincode::serialize(&summary)?)?;
+        }
+
+        Ok(())
+    }
+
+    pub fn get_summary_stats(&self) -> Result<Vec<GitRepoSummary>, Box<dyn std::error::Error>> {
+        let mut repos = Vec::new();
+
+        for result in self.db.iterator(rocksdb::IteratorMode::Start) {
+            let (key, value) = result?;
+            let summary: GitRepoSummary = bincode::deserialize(&value)?;
+            repos.push(summary);
+        }
+
+        Ok(repos)
+    }
 }
 
-pub fn summary_repos_table() -> Result<()> {
-    let db_path = dirs::home_dir()
-        .unwrap()
-        .join(".local/share/applications/sinh-x/git-status.db");
-    if let Some(parent) = db_path.parent() {
-        let _ = std::fs::create_dir_all(parent);
-    }
-    let conn = Connection::open(Path::new(&db_path))?;
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use std::path::PathBuf;
+    use std::sync::Once;
 
-    // Create the repos_summary table if it doesn't exist
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS repos_summary (
-            path TEXT PRIMARY KEY,
-            status_lines INTEGER,
-            unpushed_commits_lines INTEGER,
-            remote_updates_lines INTEGER
-        )",
-        [],
-    )?;
+    static INIT: Once = Once::new();
+    static TEST_DB_PATH: &str = "/tmp/sinh-x_gitstatus-test.db";
 
-    // Query the summary line count for each field
-    let mut stmt =
-        conn.prepare("SELECT path, status, unpushed_commits, remote_updates FROM repos")?;
-    let rows = stmt.query_map([], |row| {
-        Ok(GitRepoSummary {
-            path: row.get::<_, String>(0)?,
-            status_lines: (row.get::<_, String>(1)?.matches('\n').count() + 1) as i32,
-            unpushed_commits_lines: (row.get::<_, String>(2)?.matches('\n').count() + 1) as i32,
-            remote_updates_lines: (row.get::<_, String>(3)?.matches('\n').count() + 1) as i32,
-        })
-    })?;
-
-    // Insert the results into the repos_summary table
-    for row in rows {
-        let summary = row?;
-        conn.execute(
-        "INSERT OR REPLACE INTO repos_summary (path, status_lines, unpushed_commits_lines, remote_updates_lines) VALUES (?, ?, ?, ?)",
-        params![summary.path, summary.status_lines, summary.unpushed_commits_lines, summary.remote_updates_lines],
-    )?;
+    fn setup() -> GitDatabase {
+        INIT.call_once(|| {
+            let _ = fs::remove_dir_all(TEST_DB_PATH); // Delete the test database if it exists
+        });
+        GitDatabase::new(Path::new(TEST_DB_PATH)).unwrap()
     }
 
-    Ok(())
-}
+    #[test]
+    fn test_save_and_load_db() {
+        let db = setup();
 
-pub fn get_summary_stats() -> Result<Vec<GitRepoSummary>> {
-    let db_path = dirs::home_dir()
-        .unwrap()
-        .join(".local/share/applications/sinh-x/git-status.db");
-    if let Some(parent) = db_path.parent() {
-        let _ = std::fs::create_dir_all(parent);
+        let repo = GitRepoInfo::new(
+            "/path/to/repo".to_string(),
+            Some("https://github.com/user/repo.git".to_string()),
+            "status".to_string(),
+            "unpushed_commits".to_string(),
+            "remote_updates".to_string(),
+        );
+
+        db.save_to_db(&repo).unwrap();
+
+        // Verify that the repo was saved correctly
+        let repos = db.load_from_db().unwrap();
+        assert_eq!(
+            repos.len(),
+            1,
+            "1::Expected 1 repo, but found {}",
+            repos.len()
+        );
+        assert_eq!(repos[0], repo, "1::Saved repo does not match loaded repo");
+
+        let repo = GitRepoInfo::new(
+            "/path/to/repo".to_string(),
+            Some("https://github.com/user/repo.git".to_string()),
+            "status-2".to_string(),
+            "unpushed_commits-2".to_string(),
+            "remote_updates-2".to_string(),
+        );
+
+        db.save_to_db(&repo).unwrap();
+
+        // Verify that the repo was saved correctly
+        let repos = db.load_from_db().unwrap();
+        assert_eq!(
+            repos.len(),
+            1,
+            "2::Expected 1 repo, but found {}",
+            repos.len()
+        );
+        assert_eq!(repos[0], repo, "2::Saved repo does not match loaded repo");
+
+        let repo = GitRepoInfo::new(
+            "/path/to/repo-2".to_string(),
+            Some("https://github.com/user/repo.git".to_string()),
+            "status-2".to_string(),
+            "unpushed_commits-2".to_string(),
+            "remote_updates-2".to_string(),
+        );
+
+        db.save_to_db(&repo).unwrap();
+
+        // Verify that the repo was saved correctly
+        let repos = db.load_from_db().unwrap();
+        assert_eq!(
+            repos.len(),
+            2,
+            "3::Expected 2 repo, but found {}",
+            repos.len()
+        );
+        assert_eq!(repos[1], repo, "3::Saved repo does not match loaded repo");
+
+        let _ = fs::remove_dir_all(TEST_DB_PATH);
     }
-    let conn = Connection::open(Path::new(&db_path))?;
-    let mut stmt = conn.prepare("SELECT path, status_lines, unpushed_commits_lines, remote_updates_lines FROM repos_summary")?;
-
-    let rows = stmt.query_map(params![], |row| {
-        Ok(GitRepoSummary {
-            path: row.get(0)?,
-            status_lines: row.get(1)?,
-            unpushed_commits_lines: row.get(2)?,
-            remote_updates_lines: row.get(3)?,
-        })
-    })?;
-
-    let mut repos = Vec::new();
-    for repo in rows {
-        repos.push(repo?);
-    }
-
-    Ok(repos)
 }

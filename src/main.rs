@@ -1,12 +1,19 @@
-use structopt::StructOpt;
+mod config;
 mod git_database;
 mod git_status;
 
+use config::Config;
 use env_logger::Env;
-use git_database::{get_summary_stats, save_to_db, summary_repos_table};
+use git_database::GitDatabase;
 use git_status::check_dir;
 use log::debug;
-use std::path::PathBuf;
+use std::fs;
+use std::io::Write;
+use std::path::{Path, PathBuf};
+use structopt::StructOpt;
+
+#[macro_use]
+extern crate serde_derive;
 
 #[derive(Debug, StructOpt)]
 #[structopt(name = "gitstatus", about = "Checks the status of git repositories.")]
@@ -27,6 +34,22 @@ enum GitCommand {
 }
 
 fn main() {
+    let config_path = Path::new("path/to/config.toml");
+    let config = if config_path.exists() {
+        // Load the config from the file
+        Config::new(config_path).unwrap()
+    } else {
+        // Create a new config with default values
+        let config = Config::new(config_path).expect("Failed to load config");
+        config.validate().expect("Invalid config");
+
+        config
+    };
+
+    let binding = config.general.database_path.unwrap();
+    let db_path = Path::new(&binding);
+    let gitdb = GitDatabase::new(db_path).unwrap();
+
     env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
     let args = Cli::from_args();
 
@@ -37,14 +60,16 @@ fn main() {
                 debug!("Status:\n{}", repo.status);
                 debug!("Unpushed commits:\n{}", repo.unpushed_commits);
                 debug!("Updates from remote:\n{}", repo.remote_updates);
-                match save_to_db(&repo) {
+                match gitdb.save_to_db(&repo) {
                     Ok(()) => println!("Saved to database successfully."),
                     Err(e) => eprintln!("Failed to save to database: {}", e),
                 }
             }
-            summary_repos_table().expect("Failed to create summary table");
+            gitdb
+                .summary_repos_table()
+                .expect("Failed to create summary table");
         }
-        GitCommand::Status => match get_summary_stats() {
+        GitCommand::Status => match gitdb.get_summary_stats() {
             Ok(repos) => {
                 for repo in repos {
                     println!(

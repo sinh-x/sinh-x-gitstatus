@@ -21,26 +21,18 @@
           cargoHash = "sha256-P35+K7ipaPg7z1HXPjofEW4LM21VDsCyJP/SidMnrik=";
           buildInputs = with pkgs; [
             cargo
-            rustc
-            pkg-config
-            openssl
-            rustfmt
-            clippy
-            db
-            sqlite
+            llvmPackages.clang
             llvmPackages.libclang
-            llvmPackages.llvm
-            glibc
-            gcc
+            openssl
+            pkg-config
+            rustc
+            rustfmt
           ];
           nativeBuildInputs = with pkgs; [
             cargo
-            rustc
-            pkg-config
             openssl
-            db
-            llvmPackages.libclang
-            llvmPackages.llvm
+            pkg-config
+            rustc
           ];
         };
       in {
@@ -49,19 +41,14 @@
         devShell = pkgs.mkShell {
           buildInputs = with pkgs; [
             cargo
-            rustc
-            pkg-config
-            openssl
-            rustfmt
-            clippy
-            db
-            sqlite
+            llvmPackages.clang
             llvmPackages.libclang
-            llvmPackages.llvm
-            glibc
-            gcc
+            openssl
+            pkg-config
+            rustc
+            rustfmt
           ];
-
+          LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";
           shellHook = ''
             exec fish
           '';
