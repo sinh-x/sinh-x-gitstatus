@@ -10,7 +10,7 @@ pub struct General {
 impl Default for General {
     fn default() -> Self {
         let mut config_path: PathBuf = dirs::home_dir().unwrap();
-        config_path.push(".local/share/applications/sinh-x/git-status/git-status.db");
+        config_path.push(".local/share/applications/sinh-x/git-status/");
 
         Self {
             database_path: Some(config_path.to_str().unwrap().to_string()),

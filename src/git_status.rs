@@ -1,10 +1,10 @@
+use crate::git_database::GitRepoInfo;
 use log::debug;
+use semver::Version;
 use std::fs;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
-
-use crate::git_database::GitRepoInfo;
 
 pub fn is_git_repo(path: &Path) -> bool {
     Command::new("git")
@@ -98,6 +98,7 @@ pub fn check_dir(path: &Path) -> Vec<GitRepoInfo> {
             status,
             unpushed,
             updates,
+            Some(Version::parse(env!("CARGO_PKG_VERSION")).unwrap()),
         );
 
         repos.push(repo_info);
@@ -105,7 +106,7 @@ pub fn check_dir(path: &Path) -> Vec<GitRepoInfo> {
         for entry in fs::read_dir(path).unwrap() {
             let entry = entry.unwrap();
             let path = entry.path();
-            println!("entry: {:?}", &path);
+            debug!("entry: {:?}", &path);
             if path.is_dir() {
                 repos.extend(check_dir(&path));
             }
@@ -134,28 +135,37 @@ mod tests {
     }
 
     #[test]
-    fn test_get_git_status() {
-        let path = Path::new("path_to_test_repo");
-        let status = get_git_status(&path);
+    fn test_gitstatus_functions() {
+        init();
 
-        todo!("Test not implemented yet");
-        // assert something about the status
-    }
+        // assert something about the repos
+        let path_with_subdir = Path::new("/home/sinh/git-repos/others/rust-analyzer/");
+        let dir_repos_info = check_dir(&path_with_subdir);
+        assert!(
+            dir_repos_info.len() == 1,
+            "Expected 1 repo, but found {} repos",
+            dir_repos_info.len()
+        );
+        let repo = &dir_repos_info[0];
+        let remote_updates_count = repo.remote_updates.matches('\n').count();
+        let unpushed_commits_count = repo.unpushed_commits.matches('\n').count();
+        let changes_count = repo.status.matches('\n').count();
 
-    #[test]
-    fn test_get_unpushed_commits() {
-        let path = Path::new("path_to_test_repo");
-        let unpushed = get_unpushed_commits(&path);
-        // assert something about the unpushed commits
-        todo!("Test not implemented yet");
-    }
-
-    #[test]
-    fn test_get_remote_updates() {
-        let path = Path::new("path_to_test_repo");
-        let updates = get_remote_updates(&path);
-        // assert something about the remote updates
-        todo!("Test not implemented yet");
+        assert!(
+            changes_count == 5,
+            "Expected 5 changes_count found {}",
+            changes_count,
+        );
+        assert!(
+            remote_updates_count >= 523,
+            "Expected at least one remote update found {}",
+            remote_updates_count,
+        );
+        assert!(
+            unpushed_commits_count == 1,
+            "Expected 1 unpushed_commits found {}",
+            unpushed_commits_count
+        );
     }
 
     #[test]

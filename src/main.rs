@@ -33,17 +33,23 @@ enum GitCommand {
     Status,
 }
 
+fn get_absolute_path(path: &Path) -> std::io::Result<PathBuf> {
+    let absolute_path = fs::canonicalize(path)?;
+    Ok(absolute_path)
+}
+
 fn main() {
-    let config_path = Path::new("path/to/config.toml");
+    let mut config_path: PathBuf = dirs::home_dir().unwrap();
+    debug!("Home dir: {:?}", config_path);
+    let config_path = config_path.join(".config/sinh-x/gitstatus/config.toml");
     let config = if config_path.exists() {
         // Load the config from the file
-        Config::new(config_path).unwrap()
+        let config = Config::new(config_path.as_path()).unwrap();
+        config.validate().expect("Invalid config");
+        config
     } else {
         // Create a new config with default values
-        let config = Config::new(config_path).expect("Failed to load config");
-        config.validate().expect("Invalid config");
-
-        config
+        Config::default()
     };
 
     let binding = config.general.database_path.unwrap();
@@ -55,7 +61,8 @@ fn main() {
 
     match args.command {
         GitCommand::Check { path } => {
-            let repos = check_dir(&path);
+            let absolute_path = get_absolute_path(path.as_path());
+            let repos = check_dir(&absolute_path.unwrap());
             for repo in repos {
                 debug!("Status:\n{}", repo.status);
                 debug!("Unpushed commits:\n{}", repo.unpushed_commits);
@@ -65,23 +72,23 @@ fn main() {
                     Err(e) => eprintln!("Failed to save to database: {}", e),
                 }
             }
-            gitdb
-                .summary_repos_table()
-                .expect("Failed to create summary table");
         }
-        GitCommand::Status => match gitdb.get_summary_stats() {
-            Ok(repos) => {
-                for repo in repos {
-                    println!(
-                        "{} | {} | {} | {}",
-                        repo.path,
-                        repo.status_lines,
-                        repo.unpushed_commits_lines,
-                        repo.remote_updates_lines,
-                    );
+        GitCommand::Status => {
+            gitdb.summary_repos_table();
+            match gitdb.get_summary_stats() {
+                Ok(repos) => {
+                    for repo in repos {
+                        println!(
+                            "{} | {} | {} | {}",
+                            repo.path,
+                            repo.status_lines,
+                            repo.unpushed_commits_lines,
+                            repo.remote_updates_lines,
+                        );
+                    }
                 }
+                Err(e) => eprintln!("Failed to load from database: {}", e),
             }
-            Err(e) => eprintln!("Failed to load from database: {}", e),
-        },
+        }
     }
 }
