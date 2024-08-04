@@ -18,7 +18,7 @@
           pname = "sinh-x-gitstatus";
           version = "0.1.0";
           src = ./.;
-          cargoHash = "sha256-P35+K7ipaPg7z1HXPjofEW4LM21VDsCyJP/SidMnrik=";
+          cargoHash = "sha256-9FxiECz5na/Ah3RvI+v7xVl7L+JSgDiiX92KKxhcXfM=";
           buildInputs = with pkgs; [
             cargo
             llvmPackages.clang
@@ -30,9 +30,12 @@
           ];
           nativeBuildInputs = with pkgs; [
             cargo
+            llvmPackages.clang
+            llvmPackages.libclang
             openssl
             pkg-config
             rustc
+            rustfmt
           ];
         };
       in {
