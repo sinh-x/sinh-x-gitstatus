@@ -18,7 +18,7 @@
           pname = "sinh-x-gitstatus";
           version = "0.2.0";
           src = ./.;
-          cargoHash = "sha256-8K0t3/lVVfkF/cl0E6OCP1z0Qpe05Rzn01NX51HyzHo=";
+          cargoHash = "sha256-Me2HRg9eFE/yOfDK65jqRF3Iqf/YHOOGohS0vqHfIhc=";
           buildInputs = with pkgs; [
             cargo
             llvmPackages.clang
