@@ -125,6 +125,7 @@ mod tests {
         let _ = env_logger::builder().is_test(true).try_init();
     }
 
+    #[cfg(feature = "dev")]
     #[test]
     fn test_is_git_repo() {
         let path = Path::new("/home/sinh/Downloads/");
@@ -134,6 +135,7 @@ mod tests {
         assert!(is_git_repo(&path_git));
     }
 
+    #[cfg(feature = "dev")]
     #[test]
     fn test_gitstatus_functions() {
         init();
@@ -168,6 +170,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "dev")]
     #[test]
     fn test_check_dir() {
         init();

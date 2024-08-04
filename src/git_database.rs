@@ -62,8 +62,8 @@ impl GitRepoSummary {
     ) -> Self {
         let app_version = {
             let version_str = env!("CARGO_PKG_VERSION");
-            println!("Parsing version: {}", version_str); // Add this line
-            println!("Repo: {}", path); // Add this line
+            debug!("Parsing version: {}", version_str); // Add this line
+            debug!("Repo: {}", path); // Add this line
             Version::parse(version_str).unwrap()
         };
         Self {
@@ -175,7 +175,6 @@ mod tests {
             std::env::var("CARGO_PKG_VERSION").expect("CARGO_PKG_VERSION must be set");
         assert!(repo.app_version.to_string().contains(&app_version));
     }
-
     #[test]
     fn test_gitdatabase() {
         let db = setup();

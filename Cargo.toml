@@ -1,6 +1,6 @@
 [package]
 name = "sinh-x-gitstatus"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 
 [dependencies]
@@ -16,3 +16,6 @@ serde_derive = "1.0"
 structopt = "0.3"
 toml = "0.8"
 
+[features]
+dev = []
+debug-logging = []

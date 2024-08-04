@@ -16,9 +16,9 @@
         pkgs = nixpkgs.legacyPackages.${system};
         sinh-x-gitstatus = pkgs.rustPlatform.buildRustPackage {
           pname = "sinh-x-gitstatus";
-          version = "0.1.0";
+          version = "0.2.0";
           src = ./.;
-          cargoHash = "sha256-9FxiECz5na/Ah3RvI+v7xVl7L+JSgDiiX92KKxhcXfM=";
+          cargoHash = "sha256-8K0t3/lVVfkF/cl0E6OCP1z0Qpe05Rzn01NX51HyzHo=";
           buildInputs = with pkgs; [
             cargo
             llvmPackages.clang
@@ -28,6 +28,7 @@
             rustc
             rustfmt
           ];
+          LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";
           nativeBuildInputs = with pkgs; [
             cargo
             llvmPackages.clang
