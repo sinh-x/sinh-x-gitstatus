@@ -16,6 +16,7 @@ structopt = "0.3"
 toml = "0.8"
 sled = "0.34"
 indicatif = "0.17"
+git2 = "0.19"
 
 [features]
 dev = []

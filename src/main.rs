@@ -4,6 +4,7 @@ mod git_status;
 
 use config::Config;
 use env_logger::Env;
+use git2::Repository;
 use git_database::GitDatabase;
 use git_status::check_dir;
 use log::debug;
@@ -30,6 +31,7 @@ enum GitCommand {
     },
     #[structopt(about = "Load the status of all git repositories from the database.")]
     Status,
+    Commits,
 }
 
 fn get_absolute_path(path: &Path) -> std::io::Result<PathBuf> {
@@ -89,5 +91,43 @@ fn main() {
                 Err(e) => eprintln!("Failed to load from database: {}", e),
             }
         }
+        GitCommand::Commits => print_all_commits(".").expect("Failed to print commits"),
     }
+}
+
+fn print_all_commits(repo_path: &str) -> Result<(), git2::Error> {
+    let repo = Repository::open(repo_path)?;
+
+    let mut revwalk = repo.revwalk()?;
+    revwalk.push_head()?;
+
+    for id in revwalk {
+        let id = id?;
+        let commit = repo.find_commit(id)?;
+
+        let diff = if commit.parent_count() > 0 {
+            let parent = commit.parent(0)?;
+            repo.diff_tree_to_tree(Some(&parent.tree()?), Some(&commit.tree()?), None)?
+        } else {
+            let tree = commit.tree()?;
+            let empty_tree = repo.treebuilder(None)?.write()?;
+            let empty_tree = repo.find_tree(empty_tree)?;
+            repo.diff_tree_to_tree(Some(&empty_tree), Some(&tree), None)?
+        };
+        let mut line_changes = 0;
+
+        let stats = diff.stats()?;
+
+        println!(
+            "{} - {}: {} ({} - {} - {})",
+            id,
+            commit.author(),
+            commit.message().unwrap_or("No commit message"),
+            stats.files_changed(),
+            stats.insertions(),
+            stats.deletions()
+        );
+    }
+
+    Ok(())
 }
