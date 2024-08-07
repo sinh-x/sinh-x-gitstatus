@@ -1,10 +1,13 @@
 use crate::git_database::GitRepoInfo;
 use log::debug;
 use semver::Version;
+use std::error::Error;
 use std::fs;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
+
+use indicatif::{ProgressBar, ProgressStyle};
 
 pub fn is_git_repo(path: &Path) -> bool {
     Command::new("git")
@@ -81,19 +84,66 @@ pub fn get_remote_updates(path: &Path) -> String {
     String::from_utf8(output).unwrap()
 }
 
+fn check_git_paths(path: &Path) -> Result<Vec<PathBuf>, Box<dyn Error>> {
+    let mut git_paths = Vec::new();
+    if is_git_repo(path) {
+        git_paths.push(path.to_path_buf());
+    } else if path.is_dir() {
+        for entry in fs::read_dir(path).unwrap() {
+            let entry = entry.unwrap();
+            let path = entry.path();
+            if path.is_dir() {
+                match check_git_paths(&path) {
+                    Ok(mut paths) => git_paths.append(&mut paths),
+                    Err(e) => {
+                        debug!("Error processing path {}: {}", path.display(), e);
+                        continue;
+                    }
+                }
+            }
+        }
+    }
+
+    if git_paths.is_empty() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            format!("No git repos found at {}", path.display()),
+        )
+        .into());
+    } else {
+        Ok(git_paths)
+    }
+}
+
 pub fn check_dir(path: &Path) -> Vec<GitRepoInfo> {
     let mut repos = Vec::new();
 
     debug!("Checking path: {:?}", &path);
+    let git_paths = match check_git_paths(path) {
+        Ok(paths) => paths,
+        Err(e) => {
+            eprintln!("Error processing path {}: {}", path.display(), e);
+            return repos;
+        }
+    };
 
-    if is_git_repo(path) {
-        let status = get_git_status(path);
-        let unpushed = get_unpushed_commits(path);
-        let updates = get_remote_updates(path);
-        let origin_url = get_remote_origin(path);
+    let pb = ProgressBar::new(git_paths.len() as u64);
+    pb.set_style(
+        ProgressStyle::default_bar()
+            .template(
+                "{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} ({eta})",
+            )
+            .expect("Failed to create progress bar style"),
+    );
+
+    for repo in git_paths {
+        let status = get_git_status(repo.as_path());
+        let unpushed = get_unpushed_commits(repo.as_path());
+        let updates = get_remote_updates(repo.as_path());
+        let origin_url = get_remote_origin(repo.as_path());
 
         let repo_info = GitRepoInfo::new(
-            path.to_str().unwrap().to_string(),
+            repo.as_path().to_str().unwrap().to_string(),
             Some(origin_url),
             status,
             unpushed,
@@ -102,16 +152,11 @@ pub fn check_dir(path: &Path) -> Vec<GitRepoInfo> {
         );
 
         repos.push(repo_info);
-    } else if path.is_dir() {
-        for entry in fs::read_dir(path).unwrap() {
-            let entry = entry.unwrap();
-            let path = entry.path();
-            debug!("entry: {:?}", &path);
-            if path.is_dir() {
-                repos.extend(check_dir(&path));
-            }
-        }
+
+        pb.inc(1);
     }
+
+    pb.finish_with_message("done");
     repos
 }
 

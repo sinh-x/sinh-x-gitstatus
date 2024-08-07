@@ -16,23 +16,11 @@
         pkgs = nixpkgs.legacyPackages.${system};
         sinh-x-gitstatus = pkgs.rustPlatform.buildRustPackage {
           pname = "sinh-x-gitstatus";
-          version = "0.2.0";
+          version = "0.4.0";
           src = ./.;
-          cargoHash = "sha256-Me2HRg9eFE/yOfDK65jqRF3Iqf/YHOOGohS0vqHfIhc=";
+          cargoHash = "sha256-h0hP+N+vuSKr58IHD9x7q+ZL3qyPI1f3Sl/IAfJA5JY=";
           buildInputs = with pkgs; [
             cargo
-            llvmPackages.clang
-            llvmPackages.libclang
-            openssl
-            pkg-config
-            rustc
-            rustfmt
-          ];
-          LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";
-          nativeBuildInputs = with pkgs; [
-            cargo
-            llvmPackages.clang
-            llvmPackages.libclang
             openssl
             pkg-config
             rustc
@@ -45,14 +33,11 @@
         devShell = pkgs.mkShell {
           buildInputs = with pkgs; [
             cargo
-            llvmPackages.clang
-            llvmPackages.libclang
             openssl
             pkg-config
             rustc
             rustfmt
           ];
-          LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";
           shellHook = ''
             exec fish
           '';

@@ -8,7 +8,6 @@ use git_database::GitDatabase;
 use git_status::check_dir;
 use log::debug;
 use std::fs;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 use structopt::StructOpt;
 
@@ -39,7 +38,7 @@ fn get_absolute_path(path: &Path) -> std::io::Result<PathBuf> {
 }
 
 fn main() {
-    let mut config_path: PathBuf = dirs::home_dir().unwrap();
+    let config_path: PathBuf = dirs::home_dir().unwrap();
     debug!("Home dir: {:?}", config_path);
     let config_path = config_path.join(".config/sinh-x/gitstatus/config.toml");
     let config = if config_path.exists() {
@@ -68,13 +67,13 @@ fn main() {
                 debug!("Unpushed commits:\n{}", repo.unpushed_commits);
                 debug!("Updates from remote:\n{}", repo.remote_updates);
                 match gitdb.save_to_db(&repo) {
-                    Ok(()) => println!("Saved to database successfully."),
+                    Ok(()) => println!("Saved to database successfully: {}", repo.path),
                     Err(e) => eprintln!("Failed to save to database: {}", e),
                 }
             }
         }
         GitCommand::Status => {
-            gitdb.summary_repos_table();
+            let _ = gitdb.summary_repos_table();
             match gitdb.get_summary_stats() {
                 Ok(repos) => {
                     for repo in repos {

@@ -1,9 +1,7 @@
 use bincode;
-use dirs;
 use log::debug;
-use rocksdb::DB;
 use semver::Version;
-use serde::{Deserialize, Serialize};
+use sled::Db;
 use std::path::Path;
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
@@ -77,28 +75,30 @@ impl GitRepoSummary {
     }
 }
 pub struct GitDatabase {
-    db: DB,
-    summary_db: DB,
+    db: Db,
+    summary_db: Db,
 }
 
 impl GitDatabase {
     pub fn new(path: &Path) -> Result<Self, Box<dyn std::error::Error>> {
         let _ = std::fs::create_dir_all(path);
-        let db = DB::open_default(path.join("repo_db"))?;
-        let summary_db = DB::open_default(path.join("summary_db"))?;
+        let db = sled::open(path.join("repo_db"))?;
+        let summary_db = sled::open(path.join("summary_db"))?;
         Ok(Self { db, summary_db })
     }
 
     pub fn save_to_db(&self, repo: &GitRepoInfo) -> Result<(), Box<dyn std::error::Error>> {
         self.db
-            .put(repo.path.as_bytes(), bincode::serialize(repo)?)?;
+            .insert(repo.path.as_bytes(), bincode::serialize(repo)?)?;
         Ok(())
     }
 
+    //TODO: Review this function
+    #[allow(dead_code)]
     pub fn load_from_db(&self) -> Result<Vec<GitRepoInfo>, Box<dyn std::error::Error>> {
         let mut repos = Vec::new();
-        for result in self.db.iterator(rocksdb::IteratorMode::Start) {
-            let (key, value) = result?;
+        for result in self.db.iter() {
+            let (_key, value) = result?;
             let repo: GitRepoInfo = bincode::deserialize(&value)?;
             repos.push(repo);
         }
@@ -108,8 +108,8 @@ impl GitDatabase {
     pub fn summary_repos_table(&self) -> Result<(), Box<dyn std::error::Error>> {
         let mut repos_summary = Vec::new();
 
-        for result in self.db.iterator(rocksdb::IteratorMode::Start) {
-            let (key, value) = result?;
+        for result in self.db.iter() {
+            let (_key, value) = result?;
             let repo: GitRepoInfo = bincode::deserialize(&value)?;
             debug!("{:?}", repo.path);
             let summary = GitRepoSummary::new(
@@ -124,7 +124,7 @@ impl GitDatabase {
 
         for summary in repos_summary {
             self.summary_db
-                .put(summary.path.as_bytes(), bincode::serialize(&summary)?)?;
+                .insert(summary.path.as_bytes(), bincode::serialize(&summary)?)?;
         }
 
         Ok(())
@@ -133,8 +133,8 @@ impl GitDatabase {
     pub fn get_summary_stats(&self) -> Result<Vec<GitRepoSummary>, Box<dyn std::error::Error>> {
         let mut repos = Vec::new();
 
-        for result in self.summary_db.iterator(rocksdb::IteratorMode::Start) {
-            let (key, value) = result?;
+        for result in self.summary_db.iter() {
+            let (_key, value) = result?;
             let summary: GitRepoSummary = bincode::deserialize(&value)?;
             repos.push(summary);
         }
