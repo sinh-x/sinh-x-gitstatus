@@ -16,9 +16,9 @@
         pkgs = nixpkgs.legacyPackages.${system};
         sinh-x-gitstatus = pkgs.rustPlatform.buildRustPackage {
           pname = "sinh-x-gitstatus";
-          version = "0.4.0";
+          version = "0.5.1";
           src = ./.;
-          cargoHash = "sha256-h0hP+N+vuSKr58IHD9x7q+ZL3qyPI1f3Sl/IAfJA5JY=";
+          cargoHash = "sha256-9/BKrKaL+W9Qjlm/qXED//6kzMNTP2dyHXiiXPUi3QQ=";
           buildInputs = with pkgs; [
             cargo
             openssl
@@ -26,6 +26,11 @@
             rustc
             rustfmt
           ];
+          nativeBuildInputs = with pkgs; [
+            pkg-config
+            openssl
+          ];
+          cargoBuildFlags = ["--release"];
         };
       in {
         defaultPackage = sinh-x-gitstatus;
