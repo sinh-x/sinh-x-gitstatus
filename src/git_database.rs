@@ -3,7 +3,8 @@ use colored::*;
 use git2::Time;
 use log::debug;
 use semver::Version;
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Deserializer, Serializer};
+use serde_derive::{Deserialize, Serialize};
 use sled::Db;
 use std::fmt;
 use std::path::{Path, PathBuf};
@@ -71,7 +72,7 @@ impl From<bincode::Error> for GitDatabaseError {
     }
 }
 
-impl Serialize for SerializableTime {
+impl serde::Serialize for SerializableTime {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -80,7 +81,7 @@ impl Serialize for SerializableTime {
     }
 }
 
-impl<'de> Deserialize<'de> for SerializableTime {
+impl<'de> serde::Deserialize<'de> for SerializableTime {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,

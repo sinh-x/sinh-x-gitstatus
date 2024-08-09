@@ -18,7 +18,7 @@
           pname = "sinh-x-gitstatus";
           version = "0.5.1";
           src = ./.;
-          cargoHash = "sha256-9/BKrKaL+W9Qjlm/qXED//6kzMNTP2dyHXiiXPUi3QQ=";
+          cargoHash = "sha256-SZWwLCePKNz7xczJ06FH7VH6cxvv4g8TGjeT5nA/OFA=";
           buildInputs = with pkgs; [
             cargo
             openssl

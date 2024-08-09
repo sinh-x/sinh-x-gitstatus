@@ -3,6 +3,10 @@ name = "sinh-x-gitstatus"
 version = "0.5.1"
 edition = "2021"
 
+[lib]
+name = "sinh_x_gitstatus"
+path = "src/lib.rs"
+
 [dependencies]
 bincode = "1.3"
 chrono = {version = "0.4", features = ["serde"]}

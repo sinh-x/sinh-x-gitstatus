@@ -12,9 +12,6 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use structopt::StructOpt;
 
-#[macro_use]
-extern crate serde_derive;
-
 #[derive(Debug, StructOpt)]
 #[structopt(name = "gitstatus", about = "Checks the status of git repositories.")]
 struct Cli {
