@@ -16,9 +16,9 @@
         pkgs = nixpkgs.legacyPackages.${system};
         sinh-x-gitstatus = pkgs.rustPlatform.buildRustPackage {
           pname = "sinh-x-gitstatus";
-          version = "0.5.0";
+          version = "0.5.1";
           src = ./.;
-          cargoHash = "sha256-1iu4GPpCMRfZfY1UlQ7669bLSdHGKg8k9zKESyRbfVI=";
+          cargoHash = "sha256-9/BKrKaL+W9Qjlm/qXED//6kzMNTP2dyHXiiXPUi3QQ=";
           buildInputs = with pkgs; [
             cargo
             openssl
@@ -30,13 +30,7 @@
             pkg-config
             openssl
           ];
-          buildPhase = ''
-            echo $PATH
-            # Call the default buildPhase
-            runHook preBuild
-            cargo build --release
-            runHook postBuild
-          '';
+          cargoBuildFlags = ["--release"];
         };
       in {
         defaultPackage = sinh-x-gitstatus;

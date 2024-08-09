@@ -188,6 +188,15 @@ pub struct GitDatabase {
     summary_db: Db,
 }
 
+impl Clone for GitDatabase {
+    fn clone(&self) -> Self {
+        Self {
+            db: self.db.clone(),
+            summary_db: self.summary_db.clone(),
+        }
+    }
+}
+
 impl GitDatabase {
     pub fn new(path: &Path) -> Result<Self, GitDatabaseError> {
         let _ = std::fs::create_dir_all(path);

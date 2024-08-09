@@ -78,7 +78,7 @@ async fn main() {
     match args.command {
         GitCommand::Check { path, detail_level } => {
             let absolute_path = get_absolute_path(path.as_path());
-            match check_dir(&absolute_path.unwrap(), &detail_level).await {
+            match check_dir(&absolute_path.unwrap(), &detail_level, &gitdb).await {
                 Ok(repos) => {
                     for repo in repos {
                         debug!("Status:\n{}", repo.status);

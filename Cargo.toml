@@ -1,6 +1,6 @@
 [package]
 name = "sinh-x-gitstatus"
-version = "0.5.0"
+version = "0.5.1"
 edition = "2021"
 
 [dependencies]
@@ -25,3 +25,14 @@ futures = "0.3"
 [features]
 dev = []
 debug-logging = []
+
+[profile.release]
+opt-level = 3
+debug = false
+rpath = false
+lto = true
+debug-assertions = false
+codegen-units = 1
+panic = 'unwind'
+incremental = false
+overflow-checks = true

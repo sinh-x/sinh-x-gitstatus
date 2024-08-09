@@ -1,4 +1,6 @@
-use crate::git_database::{GitCommit, GitRepoInfo, SerializableTime};
+use crate::git_database::{
+    GitCommit, GitDatabase, GitDatabaseError, GitRepoInfo, SerializableTime,
+};
 use git2::Repository;
 use indicatif::{ProgressBar, ProgressStyle};
 use log::debug;
@@ -13,15 +15,21 @@ pub enum GitStatusError {
     InvalidDetailLevel,
     Git2(git2::Error),
     NoGitRepoFound,
+    GitDatabaseError(crate::git_database::GitDatabaseError),
     // Add more variants for errors specific to module 1
 }
 
 impl std::fmt::Display for GitStatusError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
-            GitStatusError::InvalidDetailLevel => write!(f, "Details level must be between 0, 1"),
-            GitStatusError::NoGitRepoFound => write!(f, "No git repo found"),
-            GitStatusError::Git2(err) => write!(f, "git error: {}", err),
+            GitStatusError::InvalidDetailLevel => {
+                write!(f, "GitStatus:: Details level must be between 0, 1")
+            }
+            GitStatusError::NoGitRepoFound => write!(f, "GitStatus:: No git repo found"),
+            GitStatusError::Git2(err) => write!(f, "GitStatus:: git error: {}", err),
+            GitStatusError::GitDatabaseError(err) => {
+                write!(f, "GitStatus:: database access error: {}", err)
+            }
         }
     }
 }
@@ -32,6 +40,11 @@ impl From<git2::Error> for GitStatusError {
     }
 }
 
+impl From<GitDatabaseError> for GitStatusError {
+    fn from(err: GitDatabaseError) -> GitStatusError {
+        GitStatusError::GitDatabaseError(err)
+    }
+}
 pub fn is_git_repo(path: &Path) -> bool {
     Command::new("git")
         .arg("-C")
@@ -134,7 +147,11 @@ fn check_git_paths(path: &Path) -> Result<Vec<PathBuf>, GitStatusError> {
     }
 }
 
-pub async fn check_dir(path: &Path, detail_level: &u8) -> Result<Vec<GitRepoInfo>, GitStatusError> {
+pub async fn check_dir(
+    path: &Path,
+    detail_level: &u8,
+    gitdb: &GitDatabase,
+) -> Result<Vec<GitRepoInfo>, GitStatusError> {
     let mut repos = Vec::new();
 
     debug!("Checking path: {:?}", &path);
@@ -161,6 +178,7 @@ pub async fn check_dir(path: &Path, detail_level: &u8) -> Result<Vec<GitRepoInfo
         .map(|repo| {
             let pb = pb.clone();
             let detail_level = *detail_level;
+            let gitdb = gitdb.clone();
             tokio::spawn(async move {
                 let start = std::time::Instant::now();
 
@@ -169,7 +187,7 @@ pub async fn check_dir(path: &Path, detail_level: &u8) -> Result<Vec<GitRepoInfo
                 let unpushed = get_unpushed_commits(&repo);
                 let updates = get_remote_updates(&repo);
                 let origin_url = get_remote_origin(&repo);
-                let commits_list = get_commits_history(&repo, &detail_level)?;
+                let commits_list = get_commits_history(&repo, &detail_level, &gitdb)?;
 
                 let repo_info = GitRepoInfo::new(
                     repo.to_str().unwrap().to_string(),
@@ -217,10 +235,21 @@ pub async fn check_dir(path: &Path, detail_level: &u8) -> Result<Vec<GitRepoInfo
     Ok(repos)
 }
 
-fn get_commits_history(path: &Path, detail_level: &u8) -> Result<Vec<GitCommit>, GitStatusError> {
+fn get_commits_history(
+    path: &Path,
+    detail_level: &u8,
+    gitdb: &GitDatabase,
+) -> Result<Vec<GitCommit>, GitStatusError> {
     let mut commits_list = Vec::new();
     match detail_level {
-        &0 => {}
+        &0 => match gitdb.get_repo_details(path.to_path_buf()) {
+            Ok(repo) => {
+                return Ok(repo
+                    .commits
+                    .expect("GitStatus:: failed to get commits history form SledDB"))
+            }
+            Err(e) => return Err(GitStatusError::GitDatabaseError(e)),
+        },
         &1 => {
             let repo = Repository::open(path)?;
             let mut revwalk = repo.revwalk()?;
