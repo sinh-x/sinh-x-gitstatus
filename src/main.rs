@@ -28,10 +28,24 @@ enum GitCommand {
     Check {
         #[structopt(parse(from_os_str))]
         path: PathBuf,
+        #[structopt(short = "L", long, default_value = "0", validator = validate_detail_level)]
+        detail_level: u8,
     },
     #[structopt(about = "Load the status of all git repositories from the database.")]
-    Status,
+    Status {
+        #[structopt(parse(from_os_str))]
+        path: Option<PathBuf>,
+    },
     Commits,
+}
+
+fn validate_detail_level(level: String) -> Result<(), String> {
+    match level.parse::<u8>() {
+        Ok(val) if val <= 1 => Ok(()),
+        _ => Err(String::from(
+            "Detail level must be a number between 0 and 1",
+        )),
+    }
 }
 
 fn get_absolute_path(path: &Path) -> std::io::Result<PathBuf> {
@@ -39,7 +53,8 @@ fn get_absolute_path(path: &Path) -> std::io::Result<PathBuf> {
     Ok(absolute_path)
 }
 
-fn main() {
+#[tokio::main]
+async fn main() {
     let config_path: PathBuf = dirs::home_dir().unwrap();
     debug!("Home dir: {:?}", config_path);
     let config_path = config_path.join(".config/sinh-x/gitstatus/config.toml");
@@ -61,35 +76,60 @@ fn main() {
     let args = Cli::from_args();
 
     match args.command {
-        GitCommand::Check { path } => {
+        GitCommand::Check { path, detail_level } => {
             let absolute_path = get_absolute_path(path.as_path());
-            let repos = check_dir(&absolute_path.unwrap());
-            for repo in repos {
-                debug!("Status:\n{}", repo.status);
-                debug!("Unpushed commits:\n{}", repo.unpushed_commits);
-                debug!("Updates from remote:\n{}", repo.remote_updates);
-                match gitdb.save_to_db(&repo) {
-                    Ok(()) => println!("Saved to database successfully: {}", repo.path),
-                    Err(e) => eprintln!("Failed to save to database: {}", e),
-                }
-            }
-        }
-        GitCommand::Status => {
-            let _ = gitdb.summary_repos_table();
-            match gitdb.get_summary_stats() {
+            match check_dir(&absolute_path.unwrap(), &detail_level).await {
                 Ok(repos) => {
                     for repo in repos {
-                        println!(
-                            "{} | {} | {} | {}",
-                            repo.path,
-                            repo.status_lines,
-                            repo.unpushed_commits_lines,
-                            repo.remote_updates_lines,
-                        );
+                        debug!("Status:\n{}", repo.status);
+                        debug!("Unpushed commits:\n{}", repo.unpushed_commits);
+                        debug!("Updates from remote:\n{}", repo.remote_updates);
+                        match gitdb.save_to_db(&repo) {
+                            Ok(()) => debug!("Saved to database successfully: {}", repo.path),
+                            Err(e) => eprintln!("Failed to save to database: {}", e),
+                        }
                     }
                 }
-                Err(e) => eprintln!("Failed to load from database: {}", e),
+                Err(e) => eprintln!("Check Command Failed: {}", e),
             }
+        }
+        GitCommand::Status { path } => {
+            match path {
+                Some(path) => {
+                    // Handle the case where path is Some
+                    let absolute_path = get_absolute_path(path.as_path());
+                    // For example, you might want to print the path:
+                    match gitdb.get_repo_details(absolute_path.expect("Path failed")) {
+                        Ok(repo_info) => {
+                            println!("Test {}", repo_info.path);
+                            println!("Test {}", repo_info.app_version);
+                            for commit in &repo_info.commits.unwrap_or_default() {
+                                println!("Commit: {}", commit);
+                                println!(
+                                    "{} | {} | {} ",
+                                    commit.file_changes, commit.insertions, commit.deletion,
+                                );
+                            }
+                        }
+                        Err(e) => eprintln!("Status Command 1 Repo Failed: {}", e),
+                    }
+                }
+                None => match gitdb.get_summary_stats() {
+                    Ok(repos) => {
+                        for repo in repos {
+                            println!(
+                                "{} | {} | {} | {}",
+                                repo.path,
+                                repo.status_lines,
+                                repo.unpushed_commits_lines,
+                                repo.remote_updates_lines,
+                            );
+                        }
+                    }
+                    Err(e) => eprintln!("Status Commnd - All Failed: {}", e),
+                },
+            }
+            let _ = gitdb.summary_repos_table();
         }
         GitCommand::Commits => print_all_commits(".").expect("Failed to print commits"),
     }
@@ -114,7 +154,6 @@ fn print_all_commits(repo_path: &str) -> Result<(), git2::Error> {
             let empty_tree = repo.find_tree(empty_tree)?;
             repo.diff_tree_to_tree(Some(&empty_tree), Some(&tree), None)?
         };
-        let mut line_changes = 0;
 
         let stats = diff.stats()?;
 

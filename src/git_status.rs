@@ -1,13 +1,36 @@
-use crate::git_database::GitRepoInfo;
+use crate::git_database::{GitCommit, GitRepoInfo, SerializableTime};
+use git2::Repository;
+use indicatif::{ProgressBar, ProgressStyle};
 use log::debug;
 use semver::Version;
-use std::error::Error;
 use std::fs;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
 
-use indicatif::{ProgressBar, ProgressStyle};
+#[derive(Debug)]
+pub enum GitStatusError {
+    InvalidDetailLevel,
+    Git2(git2::Error),
+    NoGitRepoFound,
+    // Add more variants for errors specific to module 1
+}
+
+impl std::fmt::Display for GitStatusError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            GitStatusError::InvalidDetailLevel => write!(f, "Details level must be between 0, 1"),
+            GitStatusError::NoGitRepoFound => write!(f, "No git repo found"),
+            GitStatusError::Git2(err) => write!(f, "git error: {}", err),
+        }
+    }
+}
+
+impl From<git2::Error> for GitStatusError {
+    fn from(err: git2::Error) -> GitStatusError {
+        GitStatusError::Git2(err)
+    }
+}
 
 pub fn is_git_repo(path: &Path) -> bool {
     Command::new("git")
@@ -84,7 +107,7 @@ pub fn get_remote_updates(path: &Path) -> String {
     String::from_utf8(output).unwrap()
 }
 
-fn check_git_paths(path: &Path) -> Result<Vec<PathBuf>, Box<dyn Error>> {
+fn check_git_paths(path: &Path) -> Result<Vec<PathBuf>, GitStatusError> {
     let mut git_paths = Vec::new();
     if is_git_repo(path) {
         git_paths.push(path.to_path_buf());
@@ -105,17 +128,13 @@ fn check_git_paths(path: &Path) -> Result<Vec<PathBuf>, Box<dyn Error>> {
     }
 
     if git_paths.is_empty() {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::Other,
-            format!("No git repos found at {}", path.display()),
-        )
-        .into());
+        return Err(GitStatusError::NoGitRepoFound);
     } else {
         Ok(git_paths)
     }
 }
 
-pub fn check_dir(path: &Path) -> Vec<GitRepoInfo> {
+pub async fn check_dir(path: &Path, detail_level: &u8) -> Result<Vec<GitRepoInfo>, GitStatusError> {
     let mut repos = Vec::new();
 
     debug!("Checking path: {:?}", &path);
@@ -123,7 +142,7 @@ pub fn check_dir(path: &Path) -> Vec<GitRepoInfo> {
         Ok(paths) => paths,
         Err(e) => {
             eprintln!("Error processing path {}: {}", path.display(), e);
-            return repos;
+            return Err(e);
         }
     };
 
@@ -135,29 +154,107 @@ pub fn check_dir(path: &Path) -> Vec<GitRepoInfo> {
             )
             .expect("Failed to create progress bar style"),
     );
+    pb.tick(); // Redraw the progress bar immediately
+               //
+    let tasks: Vec<_> = git_paths
+        .into_iter()
+        .map(|repo| {
+            let pb = pb.clone();
+            let detail_level = *detail_level;
+            tokio::spawn(async move {
+                let start = std::time::Instant::now();
 
-    for repo in git_paths {
-        let status = get_git_status(repo.as_path());
-        let unpushed = get_unpushed_commits(repo.as_path());
-        let updates = get_remote_updates(repo.as_path());
-        let origin_url = get_remote_origin(repo.as_path());
+                // Your existing code...
+                let status = get_git_status(&repo);
+                let unpushed = get_unpushed_commits(&repo);
+                let updates = get_remote_updates(&repo);
+                let origin_url = get_remote_origin(&repo);
+                let commits_list = get_commits_history(&repo, &detail_level)?;
 
-        let repo_info = GitRepoInfo::new(
-            repo.as_path().to_str().unwrap().to_string(),
-            Some(origin_url),
-            status,
-            unpushed,
-            updates,
-            Some(Version::parse(env!("CARGO_PKG_VERSION")).unwrap()),
-        );
+                let repo_info = GitRepoInfo::new(
+                    repo.to_str().unwrap().to_string(),
+                    Some(origin_url),
+                    status,
+                    unpushed,
+                    updates,
+                    Some(Version::parse(env!("CARGO_PKG_VERSION")).unwrap()),
+                    Some(commits_list),
+                );
 
-        repos.push(repo_info);
+                pb.inc(1);
 
-        pb.inc(1);
+                let duration = start.elapsed();
+                Ok::<_, GitStatusError>((repo_info, duration))
+            })
+        })
+        .collect();
+
+    let results: Result<Vec<_>, _> = futures::future::try_join_all(tasks).await;
+
+    let mut durations = Vec::new();
+
+    match results {
+        Ok(repo_infos) => {
+            for repo_info in repo_infos {
+                let (repo_info, duration) = repo_info?;
+                durations.push((repo_info.path.clone(), duration));
+                repos.push(repo_info);
+            }
+        }
+        Err(e) => eprintln!("Error spawning task: {}", e),
     }
 
     pb.finish_with_message("done");
-    repos
+
+    // Sort durations by descending order and take the first 3
+    durations.sort_by(|a, b| b.1.cmp(&a.1));
+    let longest_durations = durations.into_iter().take(3);
+
+    for (path, duration) in longest_durations {
+        println!("Path: {}, Duration: {:?}", path, duration);
+    }
+
+    Ok(repos)
+}
+
+fn get_commits_history(path: &Path, detail_level: &u8) -> Result<Vec<GitCommit>, GitStatusError> {
+    let mut commits_list = Vec::new();
+    match detail_level {
+        &0 => {}
+        &1 => {
+            let repo = Repository::open(path)?;
+            let mut revwalk = repo.revwalk()?;
+            revwalk.push_head()?;
+            for id in revwalk {
+                let id = id?;
+                let commit = repo.find_commit(id)?;
+                let diff = if commit.parent_count() > 0 {
+                    let parent = commit.parent(0)?;
+                    repo.diff_tree_to_tree(Some(&parent.tree()?), Some(&commit.tree()?), None)?
+                } else {
+                    let tree = commit.tree()?;
+                    let empty_tree = repo.treebuilder(None)?.write()?;
+                    let empty_tree = repo.find_tree(empty_tree)?;
+                    repo.diff_tree_to_tree(Some(&empty_tree), Some(&tree), None)?
+                };
+                let stats = diff.stats()?;
+                let author_email = commit.author().email().unwrap_or("").to_string();
+                let message = commit.message().unwrap_or("").to_string();
+                let git_commits = GitCommit::new(
+                    id.to_string(),
+                    author_email,
+                    SerializableTime(commit.time()),
+                    message,
+                    stats.files_changed(),
+                    stats.insertions(),
+                    stats.deletions(),
+                );
+                commits_list.push(git_commits)
+            }
+        }
+        _ => return Err(GitStatusError::InvalidDetailLevel),
+    }
+    Ok(commits_list)
 }
 
 #[cfg(test)]
@@ -181,13 +278,15 @@ mod tests {
     }
 
     #[cfg(feature = "dev")]
-    #[test]
-    fn test_gitstatus_functions() {
+    #[tokio::test]
+    async fn test_gitstatus_functions() {
         init();
 
         // assert something about the repos
         let path_with_subdir = Path::new("/home/sinh/git-repos/others/rust-analyzer/");
-        let dir_repos_info = check_dir(&path_with_subdir);
+        let dir_repos_info = check_dir(&path_with_subdir, &0)
+            .await
+            .expect("Failed to check test dir");
         assert!(
             dir_repos_info.len() == 1,
             "Expected 1 repo, but found {} repos",
@@ -216,17 +315,21 @@ mod tests {
     }
 
     #[cfg(feature = "dev")]
-    #[test]
-    fn test_check_dir() {
+    #[tokio::test]
+    async fn test_check_dir() {
         init();
 
         // assert something about the repos
         let path_with_subdir = Path::new("/home/sinh/git-repos/andafin/old-projects/");
-        let dir_repos_info = check_dir(&path_with_subdir);
+        let dir_repos_info = check_dir(&path_with_subdir, &0);
+        let output_len = dir_repos_info
+            .await
+            .expect("Failed to check test dir")
+            .len();
         assert!(
-            dir_repos_info.len() == 6,
+            output_len == 6,
             "Expected 6 repo, but found {} repos",
-            dir_repos_info.len()
+            output_len
         );
     }
 }

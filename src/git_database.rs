@@ -1,8 +1,12 @@
 use bincode;
+use colored::*;
+use git2::Time;
 use log::debug;
 use semver::Version;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use sled::Db;
-use std::path::Path;
+use std::fmt;
+use std::path::{Path, PathBuf};
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct GitRepoInfo {
@@ -12,8 +16,111 @@ pub struct GitRepoInfo {
     pub unpushed_commits: String,
     pub remote_updates: String,
     pub app_version: Version,
+    pub commits: Option<Vec<GitCommit>>,
 }
 
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+pub struct GitRepoInfoV030 {
+    pub path: String,
+    pub status: String,
+    pub origin_url: String,
+    pub unpushed_commits: String,
+    pub remote_updates: String,
+    pub app_version: Version,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+pub struct GitCommit {
+    pub hash: String,
+    pub author_email: String,
+    pub time: SerializableTime,
+    pub message: String,
+    pub file_changes: usize,
+    pub insertions: usize,
+    pub deletion: usize,
+}
+
+#[derive(Debug, PartialEq)]
+pub struct SerializableTime(pub Time);
+
+#[derive(Debug)]
+pub enum GitDatabaseError {
+    KeyNotExist,
+    SledError(sled::Error),
+    BinCodeError(bincode::Error),
+}
+
+impl std::fmt::Display for GitDatabaseError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            GitDatabaseError::KeyNotExist => write!(f, "Key not existed in database."),
+            GitDatabaseError::SledError(err) => write!(f, "sled error: {}", err),
+            GitDatabaseError::BinCodeError(err) => write!(f, "bincode error: {}", err),
+        }
+    }
+}
+
+impl From<sled::Error> for GitDatabaseError {
+    fn from(err: sled::Error) -> GitDatabaseError {
+        GitDatabaseError::SledError(err)
+    }
+}
+impl From<bincode::Error> for GitDatabaseError {
+    fn from(err: bincode::Error) -> GitDatabaseError {
+        GitDatabaseError::BinCodeError(err)
+    }
+}
+
+impl Serialize for SerializableTime {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_i64(self.0.seconds())
+    }
+}
+
+impl<'de> Deserialize<'de> for SerializableTime {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let seconds = i64::deserialize(deserializer)?;
+        Ok(SerializableTime(Time::new(seconds, 0)))
+    }
+}
+
+impl GitCommit {
+    pub fn new(
+        hash: String,
+        author_email: String,
+        time: SerializableTime,
+        message: String,
+        file_changes: usize,
+        insertions: usize,
+        deletion: usize,
+    ) -> Self {
+        Self {
+            hash,
+            author_email,
+            time,
+            message,
+            file_changes,
+            insertions,
+            deletion,
+        }
+    }
+}
+
+impl fmt::Display for GitCommit {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "Hash: {}, Author Email: {}, Message: {}",
+            self.hash, self.author_email, self.message
+        )
+    }
+}
 impl GitRepoInfo {
     pub fn new(
         path: String,
@@ -22,6 +129,7 @@ impl GitRepoInfo {
         unpushed_commits: String,
         remote_updates: String,
         app_version: Option<Version>,
+        commits: Option<Vec<GitCommit>>,
     ) -> Self {
         let app_version = app_version.unwrap_or_else(|| {
             let version_str = env!("CARGO_PKG_VERSION");
@@ -36,6 +144,7 @@ impl GitRepoInfo {
             unpushed_commits,
             remote_updates,
             app_version,
+            commits,
         }
     }
 }
@@ -80,14 +189,14 @@ pub struct GitDatabase {
 }
 
 impl GitDatabase {
-    pub fn new(path: &Path) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn new(path: &Path) -> Result<Self, GitDatabaseError> {
         let _ = std::fs::create_dir_all(path);
         let db = sled::open(path.join("repo_db"))?;
         let summary_db = sled::open(path.join("summary_db"))?;
         Ok(Self { db, summary_db })
     }
 
-    pub fn save_to_db(&self, repo: &GitRepoInfo) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn save_to_db(&self, repo: &GitRepoInfo) -> Result<(), GitDatabaseError> {
         self.db
             .insert(repo.path.as_bytes(), bincode::serialize(repo)?)?;
         Ok(())
@@ -95,7 +204,7 @@ impl GitDatabase {
 
     //TODO: Review this function
     #[allow(dead_code)]
-    pub fn load_from_db(&self) -> Result<Vec<GitRepoInfo>, Box<dyn std::error::Error>> {
+    pub fn load_from_db(&self) -> Result<Vec<GitRepoInfo>, GitDatabaseError> {
         let mut repos = Vec::new();
         for result in self.db.iter() {
             let (_key, value) = result?;
@@ -105,7 +214,44 @@ impl GitDatabase {
         Ok(repos)
     }
 
-    pub fn summary_repos_table(&self) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn get_repo_details(&self, path: PathBuf) -> Result<GitRepoInfo, GitDatabaseError> {
+        match self.db.get(path.display().to_string()) {
+            Ok(Some(value)) => match bincode::deserialize(&value) {
+                Ok(repo) => return Ok(repo),
+                Err(e) => match *e {
+                    bincode::ErrorKind::Io(ref e)
+                        if e.kind() == std::io::ErrorKind::UnexpectedEof =>
+                    {
+                        let repo: GitRepoInfoV030 = bincode::deserialize(&value)?;
+                        println!(
+                            "{}",
+                            format!("WARNING: Old version of data {}. Please run with Check command to update the repo!", repo.app_version).yellow()
+                        );
+                        let new_repo = GitRepoInfo::new(
+                            repo.path,
+                            Some(repo.origin_url),
+                            repo.status,
+                            repo.unpushed_commits,
+                            repo.remote_updates,
+                            Some(repo.app_version),
+                            None,
+                        );
+                        return Ok(new_repo);
+                    }
+                    _ => {
+                        return Err(GitDatabaseError::BinCodeError(e));
+                    }
+                },
+            },
+            Ok(None) => return Err(GitDatabaseError::KeyNotExist),
+            Err(e) => {
+                debug!("git_repo_details: data handling error!");
+                return Err(GitDatabaseError::SledError(e));
+            }
+        }
+    }
+
+    pub fn summary_repos_table(&self) -> Result<(), GitDatabaseError> {
         let mut repos_summary = Vec::new();
 
         for result in self.db.iter() {
@@ -147,7 +293,6 @@ impl GitDatabase {
 mod tests {
     use super::*;
     use std::fs;
-    use std::path::PathBuf;
     use std::sync::Once;
 
     static INIT: Once = Once::new();
@@ -169,6 +314,7 @@ mod tests {
             "unpushed_commits".to_string(),
             "remote_updates".to_string(),
             None,
+            None,
         );
 
         let app_version =
@@ -185,6 +331,7 @@ mod tests {
             "status".to_string(),
             "unpushed_commits".to_string(),
             "remote_updates".to_string(),
+            None,
             None,
         );
 
@@ -207,6 +354,7 @@ mod tests {
             "unpushed_commits-2".to_string(),
             "remote_updates-2".to_string(),
             None,
+            None,
         );
 
         db.save_to_db(&repo).unwrap();
@@ -227,6 +375,7 @@ mod tests {
             "status-2".to_string(),
             "unpushed_commits-2".to_string(),
             "remote_updates-2".to_string(),
+            None,
             None,
         );
 
