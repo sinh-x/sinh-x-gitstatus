@@ -146,7 +146,6 @@ fn check_git_paths(path: &Path) -> Result<Vec<PathBuf>, GitStatusError> {
         Ok(git_paths)
     }
 }
-
 pub async fn check_dir(
     path: &Path,
     detail_level: &u8,
@@ -182,12 +181,17 @@ pub async fn check_dir(
             tokio::spawn(async move {
                 let start = std::time::Instant::now();
 
-                // Your existing code...
                 let status = get_git_status(&repo);
                 let unpushed = get_unpushed_commits(&repo);
                 let updates = get_remote_updates(&repo);
                 let origin_url = get_remote_origin(&repo);
-                let commits_list = get_commits_history(&repo, &detail_level, &gitdb)?;
+                let commits_list = match get_commits_history(&repo, &detail_level, &gitdb) {
+                    Ok(commits) => commits,
+                    Err(e) => {
+                        debug!("Repo not existed in DB return an empty Vec. Error::{}", e);
+                        Vec::new()
+                    }
+                };
 
                 let repo_info = GitRepoInfo::new(
                     repo.to_str().unwrap().to_string(),
