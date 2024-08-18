@@ -1,6 +1,6 @@
 [package]
 name = "sinh-x-gitstatus"
-version = "0.5.1"
+version = "0.6.0"
 edition = "2021"
 
 [lib]
@@ -9,22 +9,23 @@ path = "src/lib.rs"
 
 [dependencies]
 bincode = "1.3"
-chrono = {version = "0.4", features = ["serde"]}
+chrono = { version = "0.4", features = ["serde"] }
 db = "0.1"
 dirs = "5.0"
 env_logger = "0.11"
 git2 = "0.19"
 indicatif = "0.17"
 log = "0.4"
-semver = {version = "1.0", features = ["serde"]}
+semver = { version = "1.0", features = ["serde"] }
 serde = "1.0"
 serde_derive = "1.0"
 sled = "0.34"
 structopt = "0.3"
 toml = "0.8"
 colored = "2.1"
-tokio = {version = "1.39", features = ["full"]}
+tokio = { version = "1.39", features = ["full"] }
 futures = "0.3"
+tokei = "12.1"
 
 [features]
 dev = []
@@ -40,3 +41,7 @@ codegen-units = 1
 panic = 'unwind'
 incremental = false
 overflow-checks = true
+
+[[bin]]
+name = "count_lines"
+path = "src/bin/count_lines.rs"

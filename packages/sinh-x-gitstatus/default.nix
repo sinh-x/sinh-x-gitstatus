@@ -12,9 +12,9 @@
 }:
 pkgs.rustPlatform.buildRustPackage {
   pname = "sinh-x-gitstatus";
-  version = "0.5.1";
+  version = "0.6.0";
   src = ../..;
-  cargoHash = "sha256-SZWwLCePKNz7xczJ06FH7VH6cxvv4g8TGjeT5nA/OFA=";
+  cargoHash = "sha256-lMJZkZRc7k57Aic17If6otscLmk8Io4020/tt1w5Pw0=";
   buildInputs = with pkgs; [
     cargo
     openssl

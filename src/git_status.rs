@@ -1,6 +1,7 @@
 use crate::git_database::{
     GitCommit, GitDatabase, GitDatabaseError, GitRepoInfo, SerializableTime,
 };
+use colored::Colorize;
 use git2::Repository;
 use indicatif::{ProgressBar, ProgressStyle};
 use log::debug;
@@ -9,6 +10,7 @@ use std::fs;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
+use tokei::{Config as TokeiCfg, Languages};
 
 #[derive(Debug)]
 pub enum GitStatusError {
@@ -45,6 +47,7 @@ impl From<GitDatabaseError> for GitStatusError {
         GitStatusError::GitDatabaseError(err)
     }
 }
+
 pub fn is_git_repo(path: &Path) -> bool {
     Command::new("git")
         .arg("-C")
@@ -146,6 +149,7 @@ fn check_git_paths(path: &Path) -> Result<Vec<PathBuf>, GitStatusError> {
         Ok(git_paths)
     }
 }
+
 pub async fn check_dir(
     path: &Path,
     detail_level: &u8,
@@ -185,6 +189,16 @@ pub async fn check_dir(
                 let unpushed = get_unpushed_commits(&repo);
                 let updates = get_remote_updates(&repo);
                 let origin_url = get_remote_origin(&repo);
+                let languages = match get_languages_summary(&repo, &detail_level, &gitdb) {
+                    Ok(languages) => languages,
+                    Err(e) => {
+                        println!(
+                            "Repo not existed in DB return an empty Languages. Error::{}",
+                            e
+                        );
+                        Languages::new()
+                    }
+                };
                 let commits_list = match get_commits_history(&repo, &detail_level, &gitdb) {
                     Ok(commits) => commits,
                     Err(e) => {
@@ -201,6 +215,7 @@ pub async fn check_dir(
                     updates,
                     Some(Version::parse(env!("CARGO_PKG_VERSION")).unwrap()),
                     Some(commits_list),
+                    Some(languages),
                 );
 
                 pb.inc(1);
@@ -233,10 +248,45 @@ pub async fn check_dir(
     let longest_durations = durations.into_iter().take(3);
 
     for (path, duration) in longest_durations {
-        println!("Path: {}, Duration: {:?}", path, duration);
+        debug!("Path: {}, Duration: {:?}", path, duration);
     }
 
     Ok(repos)
+}
+
+fn get_languages_summary(
+    path: &Path,
+    detail_level: &u8,
+    gitdb: &GitDatabase,
+) -> Result<Languages, GitStatusError> {
+    let languages = match detail_level {
+        &0 => match gitdb.get_repo_details(path.to_path_buf()) {
+            Ok(repo) => {
+                let required_version = Version::parse("0.6.0").unwrap();
+                if repo.app_version >= required_version {
+                    match repo.languages {
+                        Some(languages) => languages,
+                        None => Languages::new(),
+                    }
+                } else {
+                    debug!(
+                        "{}",
+                        format!("WARNING: Old version of data {}. Please run with Check command to update the repo!", repo.app_version).yellow());
+                    Languages::new()
+                }
+            }
+            Err(e) => return Err(GitStatusError::GitDatabaseError(e)),
+        },
+        &1 => {
+            let config = TokeiCfg::default();
+            let mut languages = Languages::new();
+            languages.get_statistics(&[path], &[], &config);
+            languages
+        }
+
+        _ => return Err(GitStatusError::InvalidDetailLevel),
+    };
+    Ok(languages)
 }
 
 fn get_commits_history(

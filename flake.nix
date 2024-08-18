@@ -7,13 +7,6 @@
       url = "github:nixos/nixpkgs/nixos-unstable";
     };
 
-    # nixvim nix configuration
-    nixvim = {
-      url = "github:nix-community/nixvim";
-      # url = "git+file:///Users/khaneliman/Documents/github/nixvim";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
-
     pre-commit-hooks-nix.url = "github:cachix/pre-commit-hooks.nix";
 
     # Snowfall Lib

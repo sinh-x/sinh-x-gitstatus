@@ -3,7 +3,6 @@ mod git_database;
 mod git_status;
 
 use config::Config;
-use env_logger::Env;
 use git2::Repository;
 use git_database::GitDatabase;
 use git_status::check_dir;
@@ -52,6 +51,7 @@ fn get_absolute_path(path: &Path) -> std::io::Result<PathBuf> {
 
 #[tokio::main]
 async fn main() {
+    env_logger::init();
     let config_path: PathBuf = dirs::home_dir().unwrap();
     debug!("Home dir: {:?}", config_path);
     let config_path = config_path.join(".config/sinh-x/gitstatus/config.toml");
@@ -69,7 +69,6 @@ async fn main() {
     let db_path = Path::new(&binding);
     let gitdb = GitDatabase::new(db_path).unwrap();
 
-    env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
     let args = Cli::from_args();
 
     match args.command {
@@ -81,6 +80,7 @@ async fn main() {
                         debug!("Status:\n{}", repo.status);
                         debug!("Unpushed commits:\n{}", repo.unpushed_commits);
                         debug!("Updates from remote:\n{}", repo.remote_updates);
+
                         match gitdb.save_to_db(&repo) {
                             Ok(()) => debug!("Saved to database successfully: {}", repo.path),
                             Err(e) => eprintln!("Failed to save to database: {}", e),
@@ -106,6 +106,17 @@ async fn main() {
                                     "{} | {} | {} ",
                                     commit.file_changes, commit.insertions, commit.deletion,
                                 );
+                            }
+                            if let Some(ref languages) = repo_info.languages {
+                                for (name, language) in languages {
+                                    println!("Language: {}", name);
+                                    println!("  Lines: {}", language.lines());
+                                    println!("  Code: {}", language.code);
+                                    println!("  Comments: {}", language.comments);
+                                    println!("  Blanks: {}", language.blanks);
+                                }
+                            } else {
+                                println!("No languages found in the repository.");
                             }
                         }
                         Err(e) => eprintln!("Status Command 1 Repo Failed: {}", e),
