@@ -233,65 +233,70 @@ impl GitDatabase {
         let mut repos = Vec::new();
         for result in self.db.iter() {
             let (_key, value) = result?;
-            let repo: GitRepoInfo = bincode::deserialize(&value)?;
+            let repo: GitRepoInfo = Self::deserialize_git_repo_info(&value)?;
             repos.push(repo);
         }
         Ok(repos)
     }
 
-    pub fn get_repo_details(&self, path: PathBuf) -> Result<GitRepoInfo, GitDatabaseError> {
-        match self.db.get(path.display().to_string()) {
-            Ok(Some(value)) => match bincode::deserialize(&value) {
-                Ok(repo) => Ok(repo),
-                Err(e) => match *e {
-                    bincode::ErrorKind::Io(ref e)
-                        if e.kind() == std::io::ErrorKind::UnexpectedEof =>
-                    {
-                        match bincode::deserialize::<GitRepoInfoV051>(&value) {
-                            Ok(repo) => {
+    fn deserialize_git_repo_info(data: &[u8]) -> Result<GitRepoInfo, bincode::Error> {
+        match bincode::deserialize::<GitRepoInfo>(data) {
+            Ok(repo) => Ok(repo),
+            Err(e) => match *e {
+                bincode::ErrorKind::Io(ref e) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
+                    match bincode::deserialize::<GitRepoInfoV051>(data) {
+                        Ok(repo_v051) => {
+                            debug!(
+                            "{}",
+                            format!("WARNING: Old version of data {}. Please run with Check command to update the repo!", repo_v051.app_version).yellow()
+                        );
+                            let new_repo = GitRepoInfo::new(
+                                repo_v051.path,
+                                Some(repo_v051.origin_url),
+                                repo_v051.status,
+                                repo_v051.unpushed_commits,
+                                repo_v051.remote_updates,
+                                Some(repo_v051.app_version),
+                                repo_v051.commits,
+                                None,
+                            );
+                            Ok(new_repo)
+                        }
+                        Err(e) => match *e {
+                            bincode::ErrorKind::Io(ref e)
+                                if e.kind() == std::io::ErrorKind::UnexpectedEof =>
+                            {
+                                let repo_v030: GitRepoInfoV030 = bincode::deserialize(data)?;
                                 debug!(
-                                    "{}",
-                                    format!("WARNING: Old version of data {}. Please run with Check command to update the repo!", repo.app_version).yellow());
+                                "{}",
+                                format!("WARNING: Old version of data {}. Please run with Check command to update the repo!", repo_v030.app_version).yellow()
+                            );
                                 let new_repo = GitRepoInfo::new(
-                                    repo.path,
-                                    Some(repo.origin_url),
-                                    repo.status,
-                                    repo.unpushed_commits,
-                                    repo.remote_updates,
-                                    Some(repo.app_version),
-                                    repo.commits,
+                                    repo_v030.path,
+                                    Some(repo_v030.origin_url),
+                                    repo_v030.status,
+                                    repo_v030.unpushed_commits,
+                                    repo_v030.remote_updates,
+                                    Some(repo_v030.app_version),
+                                    None,
                                     None,
                                 );
                                 Ok(new_repo)
                             }
-                            Err(e) => match *e {
-                                bincode::ErrorKind::Io(ref e)
-                                    if e.kind() == std::io::ErrorKind::UnexpectedEof =>
-                                {
-                                    let repo: GitRepoInfoV030 =
-                                        bincode::deserialize::<GitRepoInfoV030>(&value)?;
-                                    debug!(
-                                    "{}",
-                                    format!("WARNING: Old version of data {}. Please run with Check command to update the repo!", repo.app_version).yellow());
-                                    let new_repo = GitRepoInfo::new(
-                                        repo.path,
-                                        Some(repo.origin_url),
-                                        repo.status,
-                                        repo.unpushed_commits,
-                                        repo.remote_updates,
-                                        Some(repo.app_version),
-                                        None,
-                                        None,
-                                    );
-
-                                    Ok(new_repo)
-                                }
-                                _ => Err(GitDatabaseError::BinCodeError(e)),
-                            },
-                        }
+                            _ => Err(e),
+                        },
                     }
-                    _ => Err(GitDatabaseError::BinCodeError(e)),
-                },
+                }
+                _ => Err(e),
+            },
+        }
+    }
+
+    pub fn get_repo_details(&self, path: PathBuf) -> Result<GitRepoInfo, GitDatabaseError> {
+        match self.db.get(path.display().to_string()) {
+            Ok(Some(value)) => match Self::deserialize_git_repo_info(&value) {
+                Ok(repo) => Ok(repo),
+                Err(e) => Err(GitDatabaseError::BinCodeError(e)),
             },
             Ok(None) => Err(GitDatabaseError::KeyNotExist),
             Err(e) => {
