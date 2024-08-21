@@ -2,9 +2,10 @@ use crate::git_database::{
     GitCommit, GitDatabase, GitDatabaseError, GitRepoInfo, SerializableTime,
 };
 use colored::Colorize;
-use git2::Repository;
+use git2::{Cred, RemoteCallbacks, Repository};
 use indicatif::{ProgressBar, ProgressStyle};
 use log::debug;
+use log::warn;
 use semver::Version;
 use std::fs;
 use std::path::Path;
@@ -61,6 +62,7 @@ pub fn is_git_repo(path: &Path) -> bool {
 }
 
 pub fn get_remote_origin(path: &Path) -> String {
+    debug!("get_remote_origin: {}", path.display());
     let output = Command::new("git")
         .arg("-C")
         .arg(path.to_str().unwrap())
@@ -75,6 +77,8 @@ pub fn get_remote_origin(path: &Path) -> String {
 }
 
 pub fn get_git_status(path: &Path) -> String {
+    debug!("get_git_status: {}", path.display());
+
     let output = Command::new("git")
         .arg("-C")
         .arg(path.to_str().unwrap())
@@ -88,6 +92,57 @@ pub fn get_git_status(path: &Path) -> String {
 }
 
 pub fn get_unpushed_commits(path: &Path) -> String {
+    debug!("get_unpushed_commits: {}", path.display());
+    let remote_url_output = Command::new("git")
+        .arg("-C")
+        .arg(path.to_str().unwrap())
+        .arg("remote")
+        .arg("get-url")
+        .arg("origin")
+        .output()
+        .expect("Failed to execute git command");
+
+    let repo = Repository::open(path).expect("Failed to open repository");
+    let remote_url = String::from_utf8(remote_url_output.stdout).unwrap();
+    if remote_url.starts_with("http") {
+        let mut remote = repo.find_remote("origin").expect("Failed to find remote");
+        let mut callbacks = RemoteCallbacks::new();
+        callbacks.credentials(|_url, _username_from_url, _allowed_types| Cred::default());
+
+        let mut fetch_options = git2::FetchOptions::new();
+        fetch_options.remote_callbacks(callbacks);
+
+        // Attempt to fetch from the remote repository
+        match remote.fetch(
+            &["refs/heads/*:refs/heads/*"],
+            Some(&mut fetch_options),
+            None,
+        ) {
+            Ok(_) => debug!(
+                "The repository at {} does not require authentication.",
+                remote_url
+            ),
+            Err(e) => {
+                if e.message().contains("authentication required") {
+                    warn!(
+                        "get_remote_updates: http protocol with password authentication is not support! {}",
+                        remote_url
+                    );
+                } else {
+                    println!(
+                        "get_remote_updates: Failed to fetch from {}: {}",
+                        remote_url, e
+                    );
+                }
+                return String::new();
+            }
+        }
+    }
+
+    debug!(
+        "get_unpushed_commits: checking http passed {}",
+        path.display()
+    );
     let output = Command::new("git")
         .arg("-C")
         .arg(path.to_str().unwrap())
@@ -103,13 +158,55 @@ pub fn get_unpushed_commits(path: &Path) -> String {
 }
 
 pub fn get_remote_updates(path: &Path) -> String {
-    Command::new("git")
+    debug!("get_remote_updates: {}", path.display());
+    // Get the URL of the remote origin
+    let remote_url_output = Command::new("git")
         .arg("-C")
         .arg(path.to_str().unwrap())
-        .arg("fetch")
+        .arg("remote")
+        .arg("get-url")
+        .arg("origin")
         .output()
         .expect("Failed to execute git command");
 
+    let repo = Repository::open(path).expect("Failed to open repository");
+    let remote_url = String::from_utf8(remote_url_output.stdout).unwrap();
+    if remote_url.starts_with("http") {
+        let mut remote = repo.find_remote("origin").expect("Failed to find remote");
+        let mut callbacks = RemoteCallbacks::new();
+        callbacks.credentials(|_url, _username_from_url, _allowed_types| Cred::default());
+
+        let mut fetch_options = git2::FetchOptions::new();
+        fetch_options.remote_callbacks(callbacks);
+
+        // Attempt to fetch from the remote repository
+        match remote.fetch(
+            &["refs/heads/*:refs/heads/*"],
+            Some(&mut fetch_options),
+            None,
+        ) {
+            Ok(_) => debug!(
+                "The repository at {} does not require authentication.",
+                remote_url
+            ),
+            Err(e) => {
+                if e.message().contains("authentication required") {
+                    warn!(
+                        "get_remote_updates: http protocol with password authentication is not support! {}",
+                        remote_url
+                    );
+                } else {
+                    println!(
+                        "get_remote_updates: Failed to fetch from {}: {}",
+                        remote_url, e
+                    );
+                }
+                return String::new();
+            }
+        }
+    }
+
+    // Proceed with the original logic
     let output = Command::new("git")
         .arg("-C")
         .arg(path.to_str().unwrap())
