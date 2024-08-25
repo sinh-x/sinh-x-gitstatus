@@ -11,6 +11,7 @@ use std::fs;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
+use std::time::Duration;
 use tokei::{Config as TokeiCfg, Languages};
 
 #[derive(Debug)]
@@ -263,7 +264,8 @@ pub async fn check_dir(
         }
     };
 
-    let pb = ProgressBar::new(git_paths.len() as u64);
+    let mp = MultiProgress::new();
+    let pb = mp.add(ProgressBar::new(git_paths.len() as u64));
     pb.set_style(
         ProgressStyle::default_bar()
             .template(
@@ -279,9 +281,17 @@ pub async fn check_dir(
             let pb = pb.clone();
             let detail_level = *detail_level;
             let gitdb = gitdb.clone();
+            let mp = mp.clone();
             tokio::spawn(async move {
                 let start = std::time::Instant::now();
-                pb.println(format!("Processing repo: {}", &repo.display()));
+                let temp_pb = mp.add(ProgressBar::new(1));
+                temp_pb.set_style(
+                    ProgressStyle::default_spinner()
+                        .template("{spinner:.green} {msg}")
+                        .expect("Failed to create temporary progress bar style"),
+                );
+                temp_pb.enable_steady_tick(Duration::from_millis(100));
+                temp_pb.set_message(format!("Processing repo: {}", &repo.display()));
 
                 let status = get_git_status(&repo);
                 let unpushed = get_unpushed_commits(&repo);
@@ -317,6 +327,7 @@ pub async fn check_dir(
                 );
 
                 pb.inc(1);
+                temp_pb.finish_and_clear();
 
                 let duration = start.elapsed();
                 Ok::<_, GitStatusError>((repo_info, duration))
