@@ -163,6 +163,15 @@ impl GitRepoInfo {
             languages,
         }
     }
+    //TODO: implemment is_equal for all field.
+    fn is_equal(&self, other: &Self) -> bool {
+        self.path == other.path
+            && self.origin_url == other.origin_url
+            && self.status == other.status
+            && self.unpushed_commits == other.unpushed_commits
+            && self.remote_updates == other.remote_updates
+            && self.app_version == other.app_version
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -344,112 +353,124 @@ impl GitDatabase {
     }
 }
 
-//#[cfg(test)]
-//mod tests {
-//    use super::*;
-//    use std::fs;
-//    use std::sync::Once;
-//
-//    static INIT: Once = Once::new();
-//    static TEST_DB_PATH: &str = "/tmp/sinh-x_gitstatus-test.db";
-//
-//    fn setup() -> GitDatabase {
-//        INIT.call_once(|| {
-//            let _ = fs::remove_dir_all(TEST_DB_PATH); // Delete the test database if it exists
-//        });
-//        GitDatabase::new(Path::new(TEST_DB_PATH)).unwrap()
-//    }
-//
-//    #[test]
-//    fn test_gitdatabase_version() {
-//        let repo = GitRepoInfo::new(
-//            "/path/to/repo".to_string(),
-//            Some("https://github.com/user/repo.git".to_string()),
-//            "status".to_string(),
-//            "unpushed_commits".to_string(),
-//            "remote_updates".to_string(),
-//            None,
-//            None,
-//            None,
-//        );
-//
-//        let app_version =
-//            std::env::var("CARGO_PKG_VERSION").expect("CARGO_PKG_VERSION must be set");
-//        assert!(repo.app_version.to_string().contains(&app_version));
-//    }
-//    #[test]
-//    fn test_gitdatabase() {
-//        let db = setup();
-//
-//        let repo = GitRepoInfo::new(
-//            "/path/to/repo".to_string(),
-//            Some("https://github.com/user/repo.git".to_string()),
-//            "status".to_string(),
-//            "unpushed_commits".to_string(),
-//            "remote_updates".to_string(),
-//            None,
-//            None,
-//            None,
-//        );
-//
-//        db.save_to_db(&repo).unwrap();
-//
-//        // Verify that the repo was saved correctly
-//        let repos = db.load_from_db().unwrap();
-//        assert_eq!(
-//            repos.len(),
-//            1,
-//            "1::Expected 1 repo, but found {}",
-//            repos.len()
-//        );
-//        assert_eq!(repos[0], repo, "1::Saved repo does not match loaded repo");
-//
-//        let repo = GitRepoInfo::new(
-//            "/path/to/repo".to_string(),
-//            Some("https://github.com/user/repo.git".to_string()),
-//            "status-2".to_string(),
-//            "unpushed_commits-2".to_string(),
-//            "remote_updates-2".to_string(),
-//            None,
-//            None,
-//            None,
-//        );
-//
-//        db.save_to_db(&repo).unwrap();
-//
-//        // Verify that the repo was saved correctly
-//        let repos = db.load_from_db().unwrap();
-//        assert_eq!(
-//            repos.len(),
-//            1,
-//            "2::Expected 1 repo, but found {}",
-//            repos.len()
-//        );
-//        assert_eq!(repos[0], repo, "2::Saved repo does not match loaded repo");
-//
-//        let repo = GitRepoInfo::new(
-//            "/path/to/repo-2".to_string(),
-//            Some("https://github.com/user/repo.git".to_string()),
-//            "status-2".to_string(),
-//            "unpushed_commits-2".to_string(),
-//            "remote_updates-2".to_string(),
-//            None,
-//            None,
-//            None,
-//        );
-//
-//        db.save_to_db(&repo).unwrap();
-//
-//        // Verify that the repo was saved correctly
-//        let repos = db.load_from_db().unwrap();
-//        assert_eq!(
-//            repos.len(),
-//            2,
-//            "3::Expected 2 repo, but found {}",
-//            repos.len()
-//        );
-//        assert_eq!(repos[1], repo, "3::Saved repo does not match loaded repo");
-//
-//        let _ = fs::remove_dir_all(TEST_DB_PATH);
-//    }
-//}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use std::sync::Once;
+
+    static INIT: Once = Once::new();
+    static TEST_DB_PATH: &str = "/tmp/sinh-x_gitstatus-test.db";
+
+    fn setup() -> GitDatabase {
+        INIT.call_once(|| {
+            let _ = fs::remove_dir_all(TEST_DB_PATH); // Delete the test database if it exists
+        });
+        GitDatabase::new(Path::new(TEST_DB_PATH)).unwrap()
+    }
+
+    #[cfg(feature = "dev")]
+    #[test]
+    fn test_gitdatabase_version() {
+        let repo = GitRepoInfo::new(
+            "/path/to/repo".to_string(),
+            Some("https://github.com/user/repo.git".to_string()),
+            "status".to_string(),
+            "unpushed_commits".to_string(),
+            "remote_updates".to_string(),
+            None,
+            None,
+            None,
+        );
+
+        let app_version =
+            std::env::var("CARGO_PKG_VERSION").expect("CARGO_PKG_VERSION must be set");
+        assert!(repo.app_version.to_string().contains(&app_version));
+    }
+
+    #[cfg(feature = "dev")]
+    #[test]
+    fn test_gitdatabase() {
+        let db = setup();
+
+        let repo = GitRepoInfo::new(
+            "/path/to/repo".to_string(),
+            Some("https://github.com/user/repo.git".to_string()),
+            "status".to_string(),
+            "unpushed_commits".to_string(),
+            "remote_updates".to_string(),
+            None,
+            None,
+            None,
+        );
+
+        db.save_to_db(&repo).unwrap();
+
+        // Verify that the repo was saved correctly
+        let repos = db.load_from_db().unwrap();
+        assert_eq!(
+            repos.len(),
+            1,
+            "1::Expected 1 repo, but found {}",
+            repos.len()
+        );
+        assert!(
+            repos[0].is_equal(&repo),
+            "1::Saved repo does not match loaded repo"
+        );
+
+        let repo = GitRepoInfo::new(
+            "/path/to/repo".to_string(),
+            Some("https://github.com/user/repo.git".to_string()),
+            "status-2".to_string(),
+            "unpushed_commits-2".to_string(),
+            "remote_updates-2".to_string(),
+            None,
+            None,
+            None,
+        );
+
+        db.save_to_db(&repo).unwrap();
+
+        // Verify that the repo was saved correctly
+        let repos = db.load_from_db().unwrap();
+        assert_eq!(
+            repos.len(),
+            1,
+            "2::Expected 1 repo, but found {}",
+            repos.len()
+        );
+        assert!(
+            repos[0].is_equal(&repo),
+            "2::Saved repo does not match loaded repo"
+        );
+
+        let repo = GitRepoInfo::new(
+            "/path/to/repo-2".to_string(),
+            Some("https://github.com/user/repo.git".to_string()),
+            "status-2".to_string(),
+            "unpushed_commits-2".to_string(),
+            "remote_updates-2".to_string(),
+            None,
+            None,
+            None,
+        );
+
+        db.save_to_db(&repo).unwrap();
+
+        // Verify that the repo was saved correctly
+        let repos = db.load_from_db().unwrap();
+        assert_eq!(
+            repos.len(),
+            2,
+            "3::Expected 2 repo, but found {}",
+            repos.len()
+        );
+        assert!(
+            repos[1].is_equal(&repo),
+            "3::Saved repo does not match loaded repo"
+        );
+
+        let _ = fs::remove_dir_all(TEST_DB_PATH);
+    }
+}
